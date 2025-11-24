@@ -1,0 +1,35 @@
+{
+    "company_name": "TOTAL Station Service",
+    "currency": "FCFA",
+    "fuel_prices": {
+        "Gasoline": 650.0,
+        "Diesel": 550.0,
+        "Premium": 750.0
+    },
+    "alert_thresholds": {
+        "default": 20.0,
+        "critical": 10.0
+    },
+    "work_periods": {
+        "matin": {
+            "start": "06:00",
+            "end": "14:00"
+        },
+        "soir": {
+            "start": "14:00",
+            "end": "22:00"
+        },
+        "nuit": {
+            "start": "22:00",
+            "end": "06:00"
+        }
+    },
+    "notifications": {
+        "low_fuel": true,
+        "losses": true,
+        "daily_summary": true
+    },
+    "language": "fr",
+    "date_format": "%Y-%m-%d",
+    "backup_frequency": 7
+}
