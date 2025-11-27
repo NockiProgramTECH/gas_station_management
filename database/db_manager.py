@@ -562,3 +562,57 @@ class DatabaseManager:
         conn.close()
         
         return alertes
+        # Ajouter cette méthode dans la classe DatabaseManager
+
+    def initialiser_niveau_automatique(self, reservoir_id: int, date: str):
+        """
+        Initialise automatiquement le niveau quotidien si pas de données
+        
+        Args:
+            reservoir_id (int): ID du réservoir
+            date (str): Date au format YYYY-MM-DD
+        """
+        try:
+            # Vérifier si des données existent déjà
+            niveau_existant = self.obtenir_niveau_quotidien(reservoir_id, date)
+            if niveau_existant:
+                return niveau_existant
+            
+            # Calculer la date de la veille
+            date_obj = datetime.strptime(date, '%Y-%m-%d')
+            date_veille_obj = date_obj - timedelta(days=1)
+            date_veille = date_veille_obj.strftime('%Y-%m-%d')
+            
+            # Obtenir le niveau de la veille
+            niveau_veille = self.obtenir_niveau_quotidien(reservoir_id, date_veille)
+            
+            if niveau_veille:
+                # Calculer la quantité restante de la veille
+                quantite_totale_veille = niveau_veille['quantite_debut'] + niveau_veille['quantite_entree']
+                
+                # Obtenir les ventes de la veille
+                conn = self.get_connection()
+                cursor = conn.cursor()
+                
+                cursor.execute('''
+                    SELECT SUM(quantite_vendue) as total_vendu
+                    FROM ventes 
+                    WHERE reservoir_id = ? AND date = ?
+                ''', (reservoir_id, date_veille))
+                
+                result = cursor.fetchone()
+                total_vendu_veille = result['total_vendu'] if result and result['total_vendu'] else 0
+                conn.close()
+                
+                # La quantité de début d'aujourd'hui = quantité restante de la veille
+                quantite_debut = max(0, quantite_totale_veille - total_vendu_veille)
+                
+                # Créer l'enregistrement pour aujourd'hui
+                return self.enregistrer_niveau_quotidien(reservoir_id, date, quantite_debut, 0)
+            else:
+                # Si pas de données pour la veille, initialiser à 0
+                return self.enregistrer_niveau_quotidien(reservoir_id, date, 0, 0)
+                
+        except Exception as e:
+            print(f"Erreur initialisation automatique: {e}")
+            return self.enregistrer_niveau_quotidien(reservoir_id, date, 0, 0)

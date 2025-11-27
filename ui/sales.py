@@ -769,3 +769,95 @@ class SalesFrame(ctk.CTkFrame):
             width=150,
             fg_color=self.colors['primary']
         ).pack(pady=20)
+
+    def check_stock_availability(self, reservoir_id: int, quantity_to_sell: float) -> Dict:
+        """
+        Vérifie la disponibilité du stock avant une vente
+        
+        Args:
+            reservoir_id (int): ID du réservoir
+            quantity_to_sell (float): Quantité à vendre
+            
+        Returns:
+            Dict: Résultat avec disponibilité et message
+        """
+        try:
+            today = datetime.now().strftime('%Y-%m-%d')
+            
+            # Obtenir le niveau actuel
+            niveau = self.db.obtenir_niveau_quotidien(reservoir_id, today)
+            if not niveau:
+                return {
+                    'available': False,
+                    'message': 'No daily level recorded for today'
+                }
+            
+            # Calculer la quantité restante
+            quantite_restante = self.calculate_remaining_quantity(reservoir_id, today)
+            
+            # Vérifier si la vente est possible
+            nouvelle_quantite = quantite_restante - quantity_to_sell
+            
+            if nouvelle_quantite < 0:
+                return {
+                    'available': False,
+                    'message': f'Insufficient stock. Available: {quantite_restante:.1f}L, Requested: {quantity_to_sell:.1f}L'
+                }
+            elif nouvelle_quantite < 100:
+                return {
+                    'available': True,
+                    'message': f'⚠️ Warning: After this sale, only {nouvelle_quantite:.1f}L will remain (below 100L threshold)',
+                    'warning': True
+                }
+            else:
+                return {
+                    'available': True,
+                    'message': f'Stock sufficient: {quantite_restante:.1f}L available',
+                    'warning': False
+                }
+                
+        except Exception as e:
+            return {
+                'available': False,
+                'message': f'Error checking stock: {str(e)}'
+            }
+
+    def calculate_remaining_quantity(self, reservoir_id: int, date: str) -> float:
+        """
+        Calcule la quantité restante dans un réservoir
+        
+        Args:
+            reservoir_id (int): ID du réservoir
+            date (str): Date au format YYYY-MM-DD
+            
+        Returns:
+            float: Quantité restante en litres
+        """
+        try:
+            # Obtenir le niveau quotidien
+            niveau = self.db.obtenir_niveau_quotidien(reservoir_id, date)
+            if not niveau:
+                return 0
+            
+            # Obtenir les ventes pour ce réservoir à cette date
+            conn = self.db.get_connection()
+            cursor = conn.cursor()
+            
+            cursor.execute('''
+                SELECT SUM(quantite_vendue) as total_vendu
+                FROM ventes 
+                WHERE reservoir_id = ? AND date = ?
+            ''', (reservoir_id, date))
+            
+            result = cursor.fetchone()
+            total_vendu = result['total_vendu'] if result and result['total_vendu'] else 0
+            conn.close()
+            
+            # Calculer la quantité restante
+            quantite_totale = niveau['quantite_debut'] + niveau['quantite_entree']
+            quantite_restante = quantite_totale - total_vendu
+            
+            return max(0, quantite_restante)
+        except Exception as e:
+            print(f"Erreur calcul quantité restante: {e}")
+            return 0

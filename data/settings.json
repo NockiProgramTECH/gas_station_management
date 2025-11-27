@@ -29,7 +29,7 @@
         "losses": true,
         "daily_summary": true
     },
-    "language": "fr",
+    "language": "en",
     "date_format": "%Y-%m-%d",
     "backup_frequency": 7
 }
