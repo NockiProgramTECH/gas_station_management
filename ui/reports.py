@@ -11,28 +11,16 @@ from tkinter import messagebox, filedialog
 from typing import Dict
 import os
 
+from excel_exporter import ExcelExporter
+
 class ReportsFrame(ctk.CTkFrame):
-    """
-    Frame de génération de rapports
-    
-    Attributes:
-        colors (Dict): Dictionnaire des couleurs
-        db (DatabaseManager): Gestionnaire de base de données
-        pdf_gen (PDFReportGenerator): Générateur de PDF
-    """
-    
     def __init__(self, parent, colors: Dict):
-        """
-        Initialise le frame des rapports
-        
-        Args:
-            parent: Widget parent
-            colors (Dict): Dictionnaire des couleurs
-        """
         super().__init__(parent, fg_color=colors['white'])
         self.colors = colors
         self.db = DatabaseManager()
         self.pdf_gen = PDFReportGenerator()
+        self.excel_exporter = ExcelExporter()  # NOUVEAU
+   
         
         self.grid_rowconfigure(1, weight=1)
         self.grid_columnconfigure(0, weight=1)
@@ -251,7 +239,61 @@ class ReportsFrame(ctk.CTkFrame):
         # Active employees
         pompistes_actifs = len(self.db.obtenir_pompistes())
         self.create_stat_card(stats_frame, "Employés Actifs", str(pompistes_actifs), self.colors['warning'], 2)
-    
+
+        ctk.CTkButton(
+            btn_frame,
+            text="📊 Export Excel",
+            command=self.export_excel,
+            width=150,
+            height=40,
+            fg_color=self.colors['success']
+        ).pack(side="left", padx=10)
+        
+    def export_excel(self):
+            """Exporte le rapport en Excel"""
+            try:
+                mois = self.month_var.get()
+                annee = self.year_var.get()
+                
+                filename = f"rapport_complet_{mois}_{annee}.xlsx"
+                filepath = filedialog.asksaveasfilename(
+                    defaultextension=".xlsx",
+                    filetypes=[("Excel files", "*.xlsx")],
+                    initialfile=filename
+                )
+                
+                if filepath:
+                    # Afficher progression
+                    from notification_system import ProgressDialog
+                    progress = ProgressDialog(
+                        self,
+                        "Export Excel",
+                        "Génération du rapport...",
+                        100
+                    )
+                    
+                    progress.update(20, "Collecte des données...")
+                    
+                    # Exporter
+                    success = self.excel_exporter.export_monthly_report(
+                        mois, annee, filepath
+                    )
+                    
+                    progress.update(100, "Terminé!")
+                    progress.close()
+                    
+                    if success:
+                        messagebox.showinfo(
+                            "Succès",
+                            f"Rapport Excel généré!\n\n{filepath}"
+                        )
+                        
+                        if messagebox.askyesno("Ouvrir", "Ouvrir le fichier?"):
+                            os.startfile(filepath)
+            
+            except Exception as e:
+                messagebox.showerror("Erreur", f"Échec export: {str(e)}")
+        
     def create_stat_card(self, parent, title: str, value: str, color: str, col: int):
         """
         Crée une carte de statistique

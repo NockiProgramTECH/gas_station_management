@@ -583,6 +583,7 @@ class EmployeesFrame(ctk.CTkFrame):
         dialog.title("Add Shift")
         dialog.geometry("500x600")
         dialog.transient(self)
+        dialog.wait_visibility()
         dialog.grab_set()
         dialog.resizable(False, False)
         

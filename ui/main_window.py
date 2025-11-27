@@ -4,7 +4,7 @@ Fenêtre principale avec navigation et différentes vues
 """
 
 import customtkinter as ctk
-from ui.dashboard import DashboardFrame
+# from ui.enhanced_dashboard import DashboardFrame
 from ui.fuel_inventory import FuelInventoryFrame
 from ui.sales import SalesFrame
 from ui.employees import EmployeesFrame
@@ -13,21 +13,16 @@ from ui.settings import SettingsFrame
 from PIL import Image
 import os
 
+from ui.enhanced_dashboard import EnhancedDashboard
+from notification_system import NotificationManager
+from auth_system import AuthSystem
+
 class MainWindow(ctk.CTk):
-    """
-    Classe de la fenêtre principale de l'application
-    
-    Attributes:
-        current_frame: Frame actuellement affiché
-        nav_buttons (dict): Dictionnaire des boutons de navigation
-    """
-    
-    def __init__(self):
-        """
-        Initialise la fenêtre principale
-        """
+    def __init__(self, auth_system: AuthSystem):
         super().__init__()
         
+        self.auth = auth_system
+         
         # Configuration de la fenêtre
         self.title("TOTAL - Gestion Station d'Essence")
         self.geometry("1400x900")
@@ -193,4 +188,22 @@ class MainWindow(ctk.CTk):
         self.clear_main_container()
         self.highlight_button("⚙️ Settings")
         self.current_frame = SettingsFrame(self.main_container, self.colors)
+        self.current_frame.grid(row=0, column=0, sticky="nsew", padx=0, pady=0)
+        
+        # Initialiser le gestionnaire de notifications
+        self.notifications = NotificationManager(self, self.colors)
+        
+        # Message de bienvenue
+        self.notifications.show(
+            f"Bienvenue {self.auth.current_user['full_name']} !",
+            'success',
+            duration=3000
+        )
+    
+    def show_dashboard(self):
+        """Affiche le dashboard amélioré"""
+        self.clear_main_container()
+        self.highlight_button("🏠 Dashboard")
+        # Utiliser le nouveau dashboard
+        self.current_frame = EnhancedDashboard(self.main_container, self.colors)
         self.current_frame.grid(row=0, column=0, sticky="nsew", padx=0, pady=0)

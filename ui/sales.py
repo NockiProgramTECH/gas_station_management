@@ -123,12 +123,24 @@ class SalesFrame(ctk.CTkFrame):
             summary_frame, "🌙 Night (22h-6h)", self.colors['dark'], 2
         )
         
-        # Sales table
+        # Sales table container
+        table_container = ctk.CTkFrame(content, fg_color=self.colors['white'], corner_radius=10)
+        table_container.grid(row=2, column=0, sticky="nsew")
+        table_container.grid_rowconfigure(1, weight=1)
+        table_container.grid_columnconfigure(0, weight=1)
+        
+        # Table header
+        self.header_frame = ctk.CTkFrame(table_container, fg_color=self.colors['light'], height=50)
+        self.header_frame.grid(row=0, column=0, sticky="ew")
+        self.header_frame.grid_propagate(False)
+        self.header_frame.grid_columnconfigure((0, 1, 2, 3, 4, 5), weight=1)
+        
+        # Table content (scrollable)
         self.table_frame = ctk.CTkScrollableFrame(
-            content,
+            table_container,
             fg_color=self.colors['white']
         )
-        self.table_frame.grid(row=2, column=0, sticky="nsew")
+        self.table_frame.grid(row=1, column=0, sticky="nsew")
     
     def create_summary_card(self, parent, title: str, color: str, col: int) -> ctk.CTkFrame:
         """
@@ -156,8 +168,8 @@ class SalesFrame(ctk.CTkFrame):
         
         amount_label = ctk.CTkLabel(
             card,
-            text="$0.00",
-            font=ctk.CTkFont(size=24, weight="bold"),
+            text="0 FCFA",
+            font=ctk.CTkFont(size=20, weight="bold"),
             text_color="white"
         )
         amount_label.pack(pady=5)
@@ -177,7 +189,7 @@ class SalesFrame(ctk.CTkFrame):
     
     def load_sales(self):
         """
-        Charge les ventes pour la date sélectionnée
+        Charge les ventes pour la date sélectionnée et les affiche dans un tableau
         """
         date = self.date_entry.get()
         ventes = self.db.obtenir_ventes_par_date(date)
@@ -190,54 +202,190 @@ class SalesFrame(ctk.CTkFrame):
             total_amount = sum(v['montant_total'] for v in period_sales)
             total_qty = sum(v['quantite_vendue'] for v in period_sales)
             
-            card.amount_label.configure(text=f"${total_amount:,.2f}")
+            card.amount_label.configure(text=f"{total_amount:,.0f} FCFA")
             card.qty_label.configure(text=f"{total_qty:,.0f} L")
         
-        # Clear table
+        # Clear table header and content
+        for widget in self.header_frame.winfo_children():
+            widget.destroy()
+        
         for widget in self.table_frame.winfo_children():
             widget.destroy()
         
-        if not ventes:
-            label = ctk.CTkLabel(
-                self.table_frame,
-                text="No sales for this date",
-                font=ctk.CTkFont(size=16),
-                text_color=self.colors['dark']
-            )
-            label.pack(pady=50)
-            return
+        # Create table header
+        headers = ["Period", "Fuel Type", "Attendant", "Quantity (L)", "Amount (FCFA)", "Time"]
+        header_config = [
+            {"width": 120, "anchor": "center"},
+            {"width": 120, "anchor": "center"},
+            {"width": 150, "anchor": "center"},
+            {"width": 100, "anchor": "center"},
+            {"width": 120, "anchor": "center"},
+            {"width": 120, "anchor": "center"}
+        ]
         
-        # Header
-        header_frame = ctk.CTkFrame(self.table_frame, fg_color=self.colors['light'], height=50)
-        header_frame.pack(fill="x", pady=(0, 10))
-        header_frame.grid_columnconfigure((0, 1, 2, 3, 4, 5), weight=1)
-        
-        headers = ["Period", "Fuel Type", "Attendant", "Quantity (L)", "Amount", "Time"]
         for i, header in enumerate(headers):
-            ctk.CTkLabel(
-                header_frame,
+            header_label = ctk.CTkLabel(
+                self.header_frame,
                 text=header,
                 font=ctk.CTkFont(size=13, weight="bold"),
-                text_color=self.colors['dark']
-            ).grid(row=0, column=i, padx=10, pady=10)
+                text_color=self.colors['dark'],
+                width=header_config[i]["width"],
+                anchor=header_config[i]["anchor"]
+            )
+            header_label.grid(row=0, column=i, padx=2, pady=15)
         
-        # Data rows
-        for vente in ventes:
-            row_frame = ctk.CTkFrame(self.table_frame, fg_color=self.colors['white'], height=50)
-            row_frame.pack(fill="x", pady=3)
+        if not ventes:
+            # Message when no sales
+            no_data_frame = ctk.CTkFrame(self.table_frame, fg_color=self.colors['white'], height=100)
+            no_data_frame.pack(fill="x", pady=20)
+            
+            ctk.CTkLabel(
+                no_data_frame,
+                text="📭 No sales recorded for this date",
+                font=ctk.CTkFont(size=16),
+                text_color=self.colors['dark']
+            ).pack(expand=True)
+            return
+        
+        # Create data rows with alternating colors
+        for idx, vente in enumerate(ventes):
+            row_color = self.colors['white'] if idx % 2 == 0 else self.colors['light']
+            
+            row_frame = ctk.CTkFrame(self.table_frame, fg_color=row_color, height=45)
+            row_frame.pack(fill="x", pady=1)
             row_frame.grid_columnconfigure((0, 1, 2, 3, 4, 5), weight=1)
             
-            # Period icon
+            # Period with icon
             period_icons = {'matin': '☀️', 'soir': '🌆', 'nuit': '🌙'}
             period_text = f"{period_icons.get(vente['periode'], '')} {vente['periode'].title()}"
             
-            ctk.CTkLabel(row_frame, text=period_text, font=ctk.CTkFont(size=12)).grid(row=0, column=0, padx=10, pady=10)
-            ctk.CTkLabel(row_frame, text=vente['type_carburant'], font=ctk.CTkFont(size=12)).grid(row=0, column=1, padx=10, pady=10)
-            ctk.CTkLabel(row_frame, text=f"{vente['nom']} {vente['prenom']}", font=ctk.CTkFont(size=12)).grid(row=0, column=2, padx=10, pady=10)
-            ctk.CTkLabel(row_frame, text=f"{vente['quantite_vendue']:,.0f}", font=ctk.CTkFont(size=12)).grid(row=0, column=3, padx=10, pady=10)
-            ctk.CTkLabel(row_frame, text=f"${vente['montant_total']:,.2f}", font=ctk.CTkFont(size=12, weight="bold")).grid(row=0, column=4, padx=10, pady=10)
-            ctk.CTkLabel(row_frame, text=f"{vente['heure_debut']}-{vente['heure_fin']}", font=ctk.CTkFont(size=11)).grid(row=0, column=5, padx=10, pady=10)
-    
+            # Fuel type with color coding
+            fuel_colors = {
+                'Gasoline': self.colors['warning'],
+                'Diesel': self.colors['primary'], 
+                'Premium': self.colors['success']
+            }
+            
+            # Create labels for each column
+            period_label = ctk.CTkLabel(
+                row_frame, 
+                text=period_text, 
+                font=ctk.CTkFont(size=12),
+                width=120,
+                anchor="center"
+            )
+            period_label.grid(row=0, column=0, padx=2, pady=10)
+            
+            fuel_label = ctk.CTkLabel(
+                row_frame,
+                text=vente['type_carburant'],
+                font=ctk.CTkFont(size=12, weight="bold"),
+                text_color="white",
+                fg_color=fuel_colors.get(vente['type_carburant'], self.colors['dark']),
+                corner_radius=8,
+                width=120,
+                anchor="center"
+            )
+            fuel_label.grid(row=0, column=1, padx=2, pady=8)
+            
+            attendant_label = ctk.CTkLabel(
+                row_frame,
+                text=f"{vente.get('prenom', '')} {vente.get('nom', '')}".strip(),
+                font=ctk.CTkFont(size=12),
+                width=150,
+                anchor="center"
+            )
+            attendant_label.grid(row=0, column=2, padx=2, pady=10)
+            
+            quantity_label = ctk.CTkLabel(
+                row_frame,
+                text=f"{vente['quantite_vendue']:,.1f}",
+                font=ctk.CTkFont(size=12),
+                width=100,
+                anchor="center"
+            )
+            quantity_label.grid(row=0, column=3, padx=2, pady=10)
+            
+            amount_label = ctk.CTkLabel(
+                row_frame,
+                text=f"{vente['montant_total']:,.0f}",
+                font=ctk.CTkFont(size=12, weight="bold"),
+                text_color=self.colors['success'],
+                width=120,
+                anchor="center"
+            )
+            amount_label.grid(row=0, column=4, padx=2, pady=10)
+            
+            time_label = ctk.CTkLabel(
+                row_frame,
+                text=f"{vente.get('heure_debut', '')}-{vente.get('heure_fin', '')}",
+                font=ctk.CTkFont(size=11),
+                width=120,
+                anchor="center"
+            )
+            time_label.grid(row=0, column=5, padx=2, pady=10)
+        
+        # Add summary row
+        total_frame = ctk.CTkFrame(self.table_frame, fg_color=self.colors['dark'], height=50)
+        total_frame.pack(fill="x", pady=(10, 0))
+        total_frame.grid_columnconfigure((0, 1, 2, 3, 4, 5), weight=1)
+        
+        total_qty = sum(v['quantite_vendue'] for v in ventes)
+        total_amount = sum(v['montant_total'] for v in ventes)
+        
+        ctk.CTkLabel(
+            total_frame,
+            text="TOTAL",
+            font=ctk.CTkFont(size=14, weight="bold"),
+            text_color="white",
+            width=120,
+            anchor="center"
+        ).grid(row=0, column=0, padx=2, pady=12)
+        
+        ctk.CTkLabel(
+            total_frame,
+            text="",
+            font=ctk.CTkFont(size=12),
+            width=120,
+            anchor="center"
+        ).grid(row=0, column=1, padx=2, pady=12)
+        
+        ctk.CTkLabel(
+            total_frame,
+            text="",
+            font=ctk.CTkFont(size=12),
+            width=150,
+            anchor="center"
+        ).grid(row=0, column=2, padx=2, pady=12)
+        
+        ctk.CTkLabel(
+            total_frame,
+            text=f"{total_qty:,.1f} L",
+            font=ctk.CTkFont(size=13, weight="bold"),
+            text_color="white",
+            width=100,
+            anchor="center"
+        ).grid(row=0, column=3, padx=2, pady=12)
+        
+        ctk.CTkLabel(
+            total_frame,
+            text=f"{total_amount:,.0f} FCFA",
+            font=ctk.CTkFont(size=14, weight="bold"),
+            text_color=self.colors['warning'],
+            width=120,
+            anchor="center"
+        ).grid(row=0, column=4, padx=2, pady=12)
+        
+        ctk.CTkLabel(
+            total_frame,
+            text=f"{len(ventes)} sales",
+            font=ctk.CTkFont(size=12),
+            text_color="white",
+            width=120,
+            anchor="center"
+        ).grid(row=0, column=5, padx=2, pady=12)
+
+    # Les autres méthodes restent inchangées...
     def show_add_sale_dialog(self):
         """
         Affiche la boîte de dialogue pour ajouter une vente
@@ -603,8 +751,8 @@ class SalesFrame(ctk.CTkFrame):
                 Starting Quantity: {analysis['quantite_debut']:,.0f} L
                 Quantity Sold: {analysis['quantite_vendue']:,.0f} L
                 Theoretical Remaining: {analysis['quantite_theorique']:,.0f} L
-                Total Revenue: ${analysis['montant_total']:,.2f}
-                Unit Price: ${analysis['prix_unitaire']:.2f}/L
+                Total Revenue: {analysis['montant_total']:,.0f} FCFA
+                Unit Price: {analysis['prix_unitaire']:.0f} FCFA/L
                 """
                 
                 ctk.CTkLabel(

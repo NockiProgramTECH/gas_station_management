@@ -2,12 +2,16 @@
 Gestion de l'inventaire des carburants
 Interface pour gérer les réservoirs et les niveaux quotidiens
 """
+"""
+Gestion de l'inventaire des carburants
+Interface pour gérer les réservoirs et les niveaux quotidiens
+"""
 
 import customtkinter as ctk
 from database.db_manager import DatabaseManager
 from datetime import datetime
 from tkinter import messagebox
-from typing import Dict
+from typing import Dict, List
 
 class FuelInventoryFrame(ctk.CTkFrame):
     """
@@ -16,6 +20,7 @@ class FuelInventoryFrame(ctk.CTkFrame):
     Attributes:
         colors (Dict): Dictionnaire des couleurs
         db (DatabaseManager): Gestionnaire de base de données
+        current_daily_data (List): Données actuelles des niveaux quotidiens
     """
     
     def __init__(self, parent, colors: Dict):
@@ -29,6 +34,7 @@ class FuelInventoryFrame(ctk.CTkFrame):
         super().__init__(parent, fg_color=colors['white'])
         self.colors = colors
         self.db = DatabaseManager()
+        self.current_daily_data = []
         
         self.grid_rowconfigure(1, weight=1)
         self.grid_columnconfigure(0, weight=1)
@@ -162,11 +168,52 @@ class FuelInventoryFrame(ctk.CTkFrame):
         elif tab_name == "movements":
             self.load_movements()
     
+    def calculate_remaining_quantity(self, reservoir_id: int, date: str) -> float:
+        """
+        Calcule la quantité restante basée sur les ventes
+        
+        Args:
+            reservoir_id (int): ID du réservoir
+            date (str): Date au format YYYY-MM-DD
+            
+        Returns:
+            float: Quantité restante en litres
+        """
+        try:
+            # Obtenir le niveau quotidien
+            niveau = self.db.obtenir_niveau_quotidien(reservoir_id, date)
+            if not niveau:
+                return 0
+            
+            # Obtenir les ventes pour ce réservoir à cette date
+            conn = self.db.get_connection()
+            cursor = conn.cursor()
+            
+            cursor.execute('''
+                SELECT SUM(quantite_vendue) as total_vendu
+                FROM ventes 
+                WHERE reservoir_id = ? AND date = ?
+            ''', (reservoir_id, date))
+            
+            result = cursor.fetchone()
+            total_vendu = result['total_vendu'] if result and result['total_vendu'] else 0
+            conn.close()
+            
+            # Calculer la quantité restante
+            quantite_totale = niveau['quantite_debut'] + niveau['quantite_entree']
+            quantite_restante = quantite_totale - total_vendu
+            
+            return max(0, quantite_restante)
+        except Exception as e:
+            print(f"Erreur calcul quantité restante: {e}")
+            return 0
+    
     def load_reservoirs(self):
         """
-        Charge la liste des réservoirs
+        Charge la liste des réservoirs avec les quantités restantes
         """
         reservoirs = self.db.obtenir_reservoirs()
+        today = datetime.now().strftime('%Y-%m-%d')
         
         if not reservoirs:
             label = ctk.CTkLabel(
@@ -188,75 +235,158 @@ class FuelInventoryFrame(ctk.CTkFrame):
         # Header row
         header_frame = ctk.CTkFrame(scroll, fg_color=self.colors['light'], height=50)
         header_frame.pack(fill="x", pady=(0, 10))
-        header_frame.grid_columnconfigure((0, 1, 2, 3), weight=1)
+        header_frame.grid_columnconfigure((0, 1, 2, 3, 4, 5), weight=1)
         
-        headers = ["Name", "Type", "Capacity (L)", "Alert Threshold (%)"]
+        headers = ["Name", "Type", "Capacity (L)", "Current Level", "Remaining (L)", "Status"]
+        header_config = [
+            {"width": 120, "anchor": "center"},
+            {"width": 100, "anchor": "center"},
+            {"width": 100, "anchor": "center"},
+            {"width": 120, "anchor": "center"},
+            {"width": 120, "anchor": "center"},
+            {"width": 100, "anchor": "center"}
+        ]
+        
         for i, header in enumerate(headers):
             label = ctk.CTkLabel(
                 header_frame,
                 text=header,
-                font=ctk.CTkFont(size=14, weight="bold"),
-                text_color=self.colors['dark']
+                font=ctk.CTkFont(size=12, weight="bold"),
+                text_color=self.colors['dark'],
+                width=header_config[i]["width"],
+                anchor=header_config[i]["anchor"]
             )
-            label.grid(row=0, column=i, padx=10, pady=10)
+            label.grid(row=0, column=i, padx=2, pady=15)
         
         # Reservoir rows
         for reservoir in reservoirs:
-            row_frame = ctk.CTkFrame(scroll, fg_color=self.colors['white'], height=60)
-            row_frame.pack(fill="x", pady=5)
-            row_frame.grid_columnconfigure((0, 1, 2, 3), weight=1)
+            row_frame = ctk.CTkFrame(scroll, fg_color=self.colors['white'], height=50)
+            row_frame.pack(fill="x", pady=2)
+            row_frame.grid_columnconfigure((0, 1, 2, 3, 4, 5), weight=1)
+            
+            # Calculer les quantités
+            quantite_restante = self.calculate_remaining_quantity(reservoir['id'], today)
+            niveau = self.db.obtenir_niveau_quotidien(reservoir['id'], today)
+            quantite_totale = (niveau['quantite_debut'] + niveau['quantite_entree']) if niveau else 0
+            pourcentage = (quantite_restante / reservoir['capacite_max']) * 100 if reservoir['capacite_max'] > 0 else 0
+            
+            # Déterminer le statut et la couleur
+            if pourcentage < reservoir['seuil_alerte']:
+                status_color = self.colors['danger']
+                status_text = "LOW"
+            elif pourcentage < 30:
+                status_color = self.colors['warning']
+                status_text = "MEDIUM"
+            else:
+                status_color = self.colors['success']
+                status_text = "OK"
             
             # Name
             ctk.CTkLabel(
                 row_frame,
                 text=reservoir['nom'],
-                font=ctk.CTkFont(size=13)
-            ).grid(row=0, column=0, padx=10, pady=15)
+                font=ctk.CTkFont(size=11),
+                width=120,
+                anchor="center"
+            ).grid(row=0, column=0, padx=2, pady=10)
             
-            # Type
+            # Type avec couleur
             type_label = ctk.CTkLabel(
                 row_frame,
                 text=reservoir['type_carburant'],
-                font=ctk.CTkFont(size=13, weight="bold")
+                font=ctk.CTkFont(size=11, weight="bold"),
+                text_color="white",
+                fg_color=self.get_fuel_color(reservoir['type_carburant']),
+                corner_radius=8,
+                width=100,
+                anchor="center"
             )
-            type_label.grid(row=0, column=1, padx=10, pady=15)
+            type_label.grid(row=0, column=1, padx=2, pady=8)
             
             # Capacity
             ctk.CTkLabel(
                 row_frame,
                 text=f"{reservoir['capacite_max']:,.0f}",
-                font=ctk.CTkFont(size=13)
-            ).grid(row=0, column=2, padx=10, pady=15)
+                font=ctk.CTkFont(size=11),
+                width=100,
+                anchor="center"
+            ).grid(row=0, column=2, padx=2, pady=10)
             
-            # Alert threshold
+            # Current level avec barre de progression visuelle
+            level_text = f"{quantite_totale:,.0f}L ({pourcentage:.1f}%)"
             ctk.CTkLabel(
                 row_frame,
-                text=f"{reservoir['seuil_alerte']}%",
-                font=ctk.CTkFont(size=13)
-            ).grid(row=0, column=3, padx=10, pady=15)
+                text=level_text,
+                font=ctk.CTkFont(size=11),
+                width=120,
+                anchor="center"
+            ).grid(row=0, column=3, padx=2, pady=10)
+            
+            # Remaining quantity
+            remaining_text = f"{quantite_restante:,.0f}L"
+            ctk.CTkLabel(
+                row_frame,
+                text=remaining_text,
+                font=ctk.CTkFont(size=11, weight="bold"),
+                text_color=status_color,
+                width=120,
+                anchor="center"
+            ).grid(row=0, column=4, padx=2, pady=10)
+            
+            # Status
+            status_label = ctk.CTkLabel(
+                row_frame,
+                text=status_text,
+                font=ctk.CTkFont(size=11, weight="bold"),
+                text_color="white",
+                fg_color=status_color,
+                corner_radius=8,
+                width=100,
+                anchor="center"
+            )
+            status_label.grid(row=0, column=5, padx=2, pady=8)
+    
+    def get_fuel_color(self, fuel_type: str) -> str:
+        """
+        Retourne la couleur associée au type de carburant
+        
+        Args:
+            fuel_type (str): Type de carburant
+            
+        Returns:
+            str: Code couleur
+        """
+        colors = {
+            'Gasoline': self.colors['warning'],
+            'Diesel': self.colors['primary'],
+            'Premium': self.colors['success']
+        }
+        return colors.get(fuel_type, self.colors['dark'])
     
     def load_daily_levels(self):
         """
-        Charge les niveaux quotidiens
+        Charge les niveaux quotidiens dans un tableau éditable
         """
-        # Nettoyer d'abord le content_area
-        for widget in self.content_area.winfo_children():
-            widget.destroy()
-        
         today = datetime.now().strftime('%Y-%m-%d')
         
-        # Date selector
-        date_frame = ctk.CTkFrame(self.content_area, fg_color="transparent")
-        date_frame.pack(fill="x", padx=20, pady=20)
+        # Container principal
+        main_frame = ctk.CTkFrame(self.content_area, fg_color=self.colors['white'])
+        main_frame.pack(fill="both", expand=True, padx=20, pady=20)
+        main_frame.grid_rowconfigure(1, weight=1)
+        main_frame.grid_columnconfigure(0, weight=1)
+        
+        # Controls frame
+        controls_frame = ctk.CTkFrame(main_frame, fg_color="transparent")
+        controls_frame.grid(row=0, column=0, sticky="ew", pady=(0, 20))
         
         ctk.CTkLabel(
-            date_frame,
+            controls_frame,
             text="Date:",
             font=ctk.CTkFont(size=14, weight="bold")
         ).pack(side="left", padx=10)
         
         self.date_entry = ctk.CTkEntry(
-            date_frame,
+            controls_frame,
             width=150,
             placeholder_text="YYYY-MM-DD"
         )
@@ -264,68 +394,252 @@ class FuelInventoryFrame(ctk.CTkFrame):
         self.date_entry.pack(side="left", padx=10)
         
         ctk.CTkButton(
-            date_frame,
-            text="Load",
+            controls_frame,
+            text="🔍 Load",
             width=100,
-            command=self.refresh_daily_levels,  # Utiliser une fonction séparée
+            command=self.refresh_daily_levels,
             fg_color=self.colors['primary']
         ).pack(side="left", padx=10)
         
         ctk.CTkButton(
-            date_frame,
-            text="+ Add Level",
+            controls_frame,
+            text="💾 Save All",
             width=120,
-            command=self.show_add_level_dialog,
+            command=self.save_all_daily_levels,
             fg_color=self.colors['success']
         ).pack(side="right", padx=10)
         
-        # Content
-        self.daily_levels_scroll = ctk.CTkScrollableFrame(self.content_area, fg_color="transparent")
-        self.daily_levels_scroll.pack(fill="both", expand=True, padx=20, pady=20)
+        ctk.CTkButton(
+            controls_frame,
+            text="🔄 Reset",
+            width=100,
+            command=self.refresh_daily_levels,
+            fg_color=self.colors['warning']
+        ).pack(side="right", padx=10)
+        
+        # Table container
+        table_container = ctk.CTkFrame(main_frame, fg_color=self.colors['white'], corner_radius=10)
+        table_container.grid(row=1, column=0, sticky="nsew")
+        table_container.grid_rowconfigure(1, weight=1)
+        table_container.grid_columnconfigure(0, weight=1)
+        
+        # Table header
+        header_frame = ctk.CTkFrame(table_container, fg_color=self.colors['light'], height=50)
+        header_frame.grid(row=0, column=0, sticky="ew")
+        header_frame.grid_propagate(False)
+        header_frame.grid_columnconfigure((0, 1, 2, 3, 4, 5), weight=1)
+        
+        headers = ["Reservoir", "Fuel Type", "Start Qty (L)", "Entry Qty (L)", "Total Qty (L)", "Remaining (L)"]
+        header_config = [
+            {"width": 150, "anchor": "center"},
+            {"width": 120, "anchor": "center"},
+            {"width": 120, "anchor": "center"},
+            {"width": 120, "anchor": "center"},
+            {"width": 120, "anchor": "center"},
+            {"width": 120, "anchor": "center"}
+        ]
+        
+        for i, header in enumerate(headers):
+            ctk.CTkLabel(
+                header_frame,
+                text=header,
+                font=ctk.CTkFont(size=12, weight="bold"),
+                text_color=self.colors['dark'],
+                width=header_config[i]["width"],
+                anchor=header_config[i]["anchor"]
+            ).grid(row=0, column=i, padx=2, pady=15)
+        
+        # Table content (scrollable)
+        self.daily_table_scroll = ctk.CTkScrollableFrame(
+            table_container,
+            fg_color=self.colors['white']
+        )
+        self.daily_table_scroll.grid(row=1, column=0, sticky="nsew")
         
         # Charger les données initiales
-        self.display_daily_levels()
+        self.display_daily_levels_table()
     
-    def refresh_daily_levels(self):
+    def display_daily_levels_table(self):
         """
-        Rafraîchit l'affichage des niveaux quotidiens sans recréer l'interface
+        Affiche les niveaux quotidiens dans un tableau éditable
         """
-        self.display_daily_levels()
-    
-    def display_daily_levels(self):
-        """
-        Affiche les niveaux quotidiens dans le scroll frame
-        """
-        # Nettoyer seulement le scroll frame
-        for widget in self.daily_levels_scroll.winfo_children():
+        # Nettoyer le tableau
+        for widget in self.daily_table_scroll.winfo_children():
             widget.destroy()
         
         reservoirs = self.db.obtenir_reservoirs()
         selected_date = self.date_entry.get()
+        self.current_daily_data = []
         
-        for reservoir in reservoirs:
+        if not reservoirs:
+            ctk.CTkLabel(
+                self.daily_table_scroll,
+                text="No reservoirs configured",
+                font=ctk.CTkFont(size=14),
+                text_color=self.colors['dark']
+            ).pack(pady=50)
+            return
+        
+        for idx, reservoir in enumerate(reservoirs):
+            row_frame = ctk.CTkFrame(
+                self.daily_table_scroll, 
+                fg_color=self.colors['white'] if idx % 2 == 0 else self.colors['light'],
+                height=50
+            )
+            row_frame.pack(fill="x", pady=1)
+            row_frame.grid_columnconfigure((0, 1, 2, 3, 4, 5), weight=1)
+            
+            # Obtenir les données existantes
             niveau = self.db.obtenir_niveau_quotidien(reservoir['id'], selected_date)
+            quantite_restante = self.calculate_remaining_quantity(reservoir['id'], selected_date)
             
-            card = ctk.CTkFrame(self.daily_levels_scroll, fg_color=self.colors['white'])
-            card.pack(fill="x", pady=10, padx=10)
+            # Stocker les données pour la sauvegarde
+            row_data = {
+                'reservoir_id': reservoir['id'],
+                'date': selected_date,
+                'quantite_debut': niveau['quantite_debut'] if niveau else 0,
+                'quantite_entree': niveau['quantite_entree'] if niveau else 0
+            }
+            self.current_daily_data.append(row_data)
             
-            # Title
+            # Reservoir name (readonly)
             ctk.CTkLabel(
-                card,
-                text=f"{reservoir['nom']} - {reservoir['type_carburant']}",
-                font=ctk.CTkFont(size=16, weight="bold")
-            ).pack(pady=10)
+                row_frame,
+                text=reservoir['nom'],
+                font=ctk.CTkFont(size=11),
+                width=150,
+                anchor="center"
+            ).grid(row=0, column=0, padx=2, pady=10)
             
-            if niveau:
-                info_text = f"Start: {niveau['quantite_debut']:,.0f}L | Entry: {niveau['quantite_entree']:,.0f}L | Total: {niveau['quantite_debut'] + niveau['quantite_entree']:,.0f}L"
-            else:
-                info_text = "No data for this date"
+            # Fuel type (readonly)
+            type_label = ctk.CTkLabel(
+                row_frame,
+                text=reservoir['type_carburant'],
+                font=ctk.CTkFont(size=11, weight="bold"),
+                text_color="white",
+                fg_color=self.get_fuel_color(reservoir['type_carburant']),
+                corner_radius=8,
+                width=120,
+                anchor="center"
+            )
+            type_label.grid(row=0, column=1, padx=2, pady=8)
             
-            ctk.CTkLabel(
-                card,
-                text=info_text,
-                font=ctk.CTkFont(size=13)
-            ).pack(pady=10)
+            # Start quantity (editable)
+            start_entry = ctk.CTkEntry(
+                row_frame,
+                width=120,
+                font=ctk.CTkFont(size=11),
+                justify="center"
+            )
+            start_entry.insert(0, str(row_data['quantite_debut']))
+            start_entry.grid(row=0, column=2, padx=2, pady=8)
+            
+            # Entry quantity (editable)
+            entry_entry = ctk.CTkEntry(
+                row_frame,
+                width=120,
+                font=ctk.CTkFont(size=11),
+                justify="center"
+            )
+            entry_entry.insert(0, str(row_data['quantite_entree']))
+            entry_entry.grid(row=0, column=3, padx=2, pady=8)
+            
+            # Total quantity (calculated, readonly)
+            total_qty = row_data['quantite_debut'] + row_data['quantite_entree']
+            total_label = ctk.CTkLabel(
+                row_frame,
+                text=f"{total_qty:,.0f}",
+                font=ctk.CTkFont(size=11, weight="bold"),
+                width=120,
+                anchor="center"
+            )
+            total_label.grid(row=0, column=4, padx=2, pady=10)
+            
+            # Remaining quantity (calculated, readonly)
+            remaining_label = ctk.CTkLabel(
+                row_frame,
+                text=f"{quantite_restante:,.0f}",
+                font=ctk.CTkFont(size=11, weight="bold"),
+                text_color=self.colors['success'],
+                width=120,
+                anchor="center"
+            )
+            remaining_label.grid(row=0, column=5, padx=2, pady=10)
+            
+            # Stocker les références pour la mise à jour
+            row_data['start_entry'] = start_entry
+            row_data['entry_entry'] = entry_entry
+            row_data['total_label'] = total_label
+            row_data['remaining_label'] = remaining_label
+            
+            # Lier les événements de modification
+            start_entry.bind('<KeyRelease>', lambda e, idx=idx: self.update_calculations(idx))
+            entry_entry.bind('<KeyRelease>', lambda e, idx=idx: self.update_calculations(idx))
+    
+    def update_calculations(self, row_index: int):
+        """
+        Met à jour les calculs pour une ligne spécifique
+        
+        Args:
+            row_index (int): Index de la ligne à mettre à jour
+        """
+        try:
+            row_data = self.current_daily_data[row_index]
+            
+            # Lire les nouvelles valeurs
+            start_qty = float(row_data['start_entry'].get() or 0)
+            entry_qty = float(row_data['entry_entry'].get() or 0)
+            
+            # Mettre à jour les données
+            row_data['quantite_debut'] = start_qty
+            row_data['quantite_entree'] = entry_qty
+            
+            # Calculer le total
+            total_qty = start_qty + entry_qty
+            
+            # Mettre à jour les labels
+            row_data['total_label'].configure(text=f"{total_qty:,.0f}")
+            
+            # Recalculer la quantité restante
+            quantite_restante = self.calculate_remaining_quantity(
+                row_data['reservoir_id'], 
+                row_data['date']
+            )
+            row_data['remaining_label'].configure(text=f"{quantite_restante:,.0f}")
+            
+        except ValueError:
+            # En cas d'erreur de conversion, ignorer
+            pass
+    
+    def save_all_daily_levels(self):
+        """
+        Sauvegarde tous les niveaux quotidiens modifiés
+        """
+        try:
+            saved_count = 0
+            for row_data in self.current_daily_data:
+                reservoir_id = row_data['reservoir_id']
+                date = row_data['date']
+                quantite_debut = row_data['quantite_debut']
+                quantite_entree = row_data['quantite_entree']
+                
+                # Sauvegarder dans la base de données
+                self.db.enregistrer_niveau_quotidien(
+                    reservoir_id, date, quantite_debut, quantite_entree
+                )
+                saved_count += 1
+            
+            messagebox.showinfo("Success", f"{saved_count} daily levels saved successfully!")
+            self.refresh_daily_levels()
+            
+        except Exception as e:
+            messagebox.showerror("Error", f"Failed to save daily levels: {str(e)}")
+    
+    def refresh_daily_levels(self):
+        """
+        Rafraîchit l'affichage des niveaux quotidiens
+        """
+        self.display_daily_levels_table()
     
     def load_movements(self):
         """
@@ -338,6 +652,9 @@ class FuelInventoryFrame(ctk.CTkFrame):
             text_color=self.colors['dark']
         )
         label.pack(pady=50)
+
+    # Les méthodes show_add_reservoir_dialog et show_add_level_dialog restent inchangées
+    # ... (le reste du code existant pour les dialogues)
     
     def show_add_reservoir_dialog(self):
         """
@@ -347,6 +664,7 @@ class FuelInventoryFrame(ctk.CTkFrame):
         dialog.title("Add New Reservoir")
         dialog.geometry("500x600")
         dialog.transient(self)
+        dialog.wait_visibility()
         dialog.grab_set()
         
         # Title
@@ -432,6 +750,7 @@ class FuelInventoryFrame(ctk.CTkFrame):
         dialog.title("Add Daily Level")
         dialog.geometry("500x500")
         dialog.transient(self)
+        dialog.wait_visibility()
         dialog.grab_set()
         
         # Title
